@@ -1,5 +1,6 @@
 from __future__ import print_function, division
 import warnings
+
 warnings.filterwarnings("ignore")
 import os.path
 import pandas as pd
@@ -12,24 +13,26 @@ import dlib
 import os
 import argparse
 
-def rect_to_bb(rect):
-	# take a bounding predicted by dlib and convert it
-	# to the format (x, y, w, h) as we would normally do
-	# with OpenCV
-	x = rect.left()
-	y = rect.top()
-	w = rect.right() - x
-	h = rect.bottom() - y
-	# return a tuple of (x, y, w, h)
-	return (x, y, w, h)
 
-def detect_face(image_paths,  SAVE_DETECTED_AT, default_max_size=800,size = 300, padding = 0.25):
-    cnn_face_detector = dlib.cnn_face_detection_model_v1('dlib_models/mmod_human_face_detector.dat')
-    sp = dlib.shape_predictor('dlib_models/shape_predictor_5_face_landmarks.dat')
+def rect_to_bb(rect):
+    # take a bounding predicted by dlib and convert it
+    # to the format (x, y, w, h) as we would normally do
+    # with OpenCV
+    x = rect.left()
+    y = rect.top()
+    w = rect.right() - x
+    h = rect.bottom() - y
+    # return a tuple of (x, y, w, h)
+    return (x, y, w, h)
+
+
+def detect_face(image_paths, SAVE_DETECTED_AT, default_max_size=800, size=300, padding=0.25):
+    cnn_face_detector = dlib.cnn_face_detection_model_v1("dlib_models/mmod_human_face_detector.dat")
+    sp = dlib.shape_predictor("dlib_models/shape_predictor_5_face_landmarks.dat")
     base = 2000  # largest width and height
     for index, image_path in enumerate(image_paths):
         if index % 1000 == 0:
-            print('---%d/%d---' %(index, len(image_paths)))
+            print("---%d/%d---" % (index, len(image_paths)))
         img = dlib.load_rgb_image(image_path)
 
         old_height, old_width, _ = img.shape
@@ -37,7 +40,7 @@ def detect_face(image_paths,  SAVE_DETECTED_AT, default_max_size=800,size = 300,
         if old_width > old_height:
             new_width, new_height = default_max_size, int(default_max_size * old_height / old_width)
         else:
-            new_width, new_height =  int(default_max_size * old_width / old_height), default_max_size
+            new_width, new_height = int(default_max_size * old_width / old_height), default_max_size
         img = dlib.resize_image(img, rows=new_height, cols=new_width)
 
         dets = cnn_face_detector(img, 1)
@@ -50,35 +53,40 @@ def detect_face(image_paths,  SAVE_DETECTED_AT, default_max_size=800,size = 300,
         for detection in dets:
             rect = detection.rect
             faces.append(sp(img, rect))
-        images = dlib.get_face_chips(img, faces, size=size, padding = padding)
+        images = dlib.get_face_chips(img, faces, size=size, padding=padding)
         for idx, image in enumerate(images):
             img_name = image_path.split("/")[-1]
             path_sp = img_name.split(".")
-            face_name = os.path.join(SAVE_DETECTED_AT,  path_sp[0] + "_" + "face" + str(idx) + "." + path_sp[-1])
+            face_name = os.path.join(
+                SAVE_DETECTED_AT, path_sp[0] + "_" + "face" + str(idx) + "." + path_sp[-1]
+            )
             dlib.save_image(image, face_name)
 
-def predidct_age_gender_race(save_prediction_at, imgs_path = 'cropped_faces/'):
-    img_names = [os.path.join(imgs_path, x) for x in os.listdir(imgs_path)]
+
+def predidct_age_gender_race(save_prediction_at, imgs_path="cropped_faces/"):
+    img_names = imgs_path
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     model_fair_7 = torchvision.models.resnet34(pretrained=True)
     model_fair_7.fc = nn.Linear(model_fair_7.fc.in_features, 18)
-    model_fair_7.load_state_dict(torch.load('fair_face_models/fairface_alldata_20191111.pt'))
+    model_fair_7.load_state_dict(torch.load("FairFace/fair_face_models/res34_fair_align_multi_7_20190809.pt"))
     model_fair_7 = model_fair_7.to(device)
     model_fair_7.eval()
 
     model_fair_4 = torchvision.models.resnet34(pretrained=True)
     model_fair_4.fc = nn.Linear(model_fair_4.fc.in_features, 18)
-    model_fair_4.load_state_dict(torch.load('fair_face_models/fairface_alldata_4race_20191111.pt'))
+    model_fair_4.load_state_dict(torch.load("FairFace/fair_face_models/res34_fair_align_multi_4_20190809.pt"))
     model_fair_4 = model_fair_4.to(device)
     model_fair_4.eval()
 
-    trans = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+    trans = transforms.Compose(
+        [
+            transforms.ToPILImage(),
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
     # img pth of face images
     face_names = []
     # list within a list. Each sublist contains scores for all races. Take max for predicted race
@@ -138,58 +146,73 @@ def predidct_age_gender_race(save_prediction_at, imgs_path = 'cropped_faces/'):
         race_scores_fair_4.append(race_score)
         race_preds_fair_4.append(race_pred)
 
-    result = pd.DataFrame([face_names,
-                           race_preds_fair,
-                           race_preds_fair_4,
-                           gender_preds_fair,
-                           age_preds_fair,
-                           race_scores_fair, race_scores_fair_4,
-                           gender_scores_fair,
-                           age_scores_fair, ]).T
-    result.columns = ['face_name_align',
-                      'race_preds_fair',
-                      'race_preds_fair_4',
-                      'gender_preds_fair',
-                      'age_preds_fair',
-                      'race_scores_fair',
-                      'race_scores_fair_4',
-                      'gender_scores_fair',
-                      'age_scores_fair']
-    result.loc[result['race_preds_fair'] == 0, 'race'] = 'White'
-    result.loc[result['race_preds_fair'] == 1, 'race'] = 'Black'
-    result.loc[result['race_preds_fair'] == 2, 'race'] = 'Latino_Hispanic'
-    result.loc[result['race_preds_fair'] == 3, 'race'] = 'East Asian'
-    result.loc[result['race_preds_fair'] == 4, 'race'] = 'Southeast Asian'
-    result.loc[result['race_preds_fair'] == 5, 'race'] = 'Indian'
-    result.loc[result['race_preds_fair'] == 6, 'race'] = 'Middle Eastern'
+    result = pd.DataFrame(
+        [
+            face_names,
+            race_preds_fair,
+            race_preds_fair_4,
+            gender_preds_fair,
+            age_preds_fair,
+            race_scores_fair,
+            race_scores_fair_4,
+            gender_scores_fair,
+            age_scores_fair,
+        ]
+    ).T
+    result.columns = [
+        "face_name_align",
+        "race_preds_fair",
+        "race_preds_fair_4",
+        "gender_preds_fair",
+        "age_preds_fair",
+        "race_scores_fair",
+        "race_scores_fair_4",
+        "gender_scores_fair",
+        "age_scores_fair",
+    ]
+    result.loc[result["race_preds_fair"] == 0, "race"] = "White"
+    result.loc[result["race_preds_fair"] == 1, "race"] = "Black"
+    result.loc[result["race_preds_fair"] == 2, "race"] = "Latino_Hispanic"
+    result.loc[result["race_preds_fair"] == 3, "race"] = "East Asian"
+    result.loc[result["race_preds_fair"] == 4, "race"] = "Southeast Asian"
+    result.loc[result["race_preds_fair"] == 5, "race"] = "Indian"
+    result.loc[result["race_preds_fair"] == 6, "race"] = "Middle Eastern"
 
     # race fair 4
 
-    result.loc[result['race_preds_fair_4'] == 0, 'race4'] = 'White'
-    result.loc[result['race_preds_fair_4'] == 1, 'race4'] = 'Black'
-    result.loc[result['race_preds_fair_4'] == 2, 'race4'] = 'Asian'
-    result.loc[result['race_preds_fair_4'] == 3, 'race4'] = 'Indian'
+    result.loc[result["race_preds_fair_4"] == 0, "race4"] = "White"
+    result.loc[result["race_preds_fair_4"] == 1, "race4"] = "Black"
+    result.loc[result["race_preds_fair_4"] == 2, "race4"] = "Asian"
+    result.loc[result["race_preds_fair_4"] == 3, "race4"] = "Indian"
 
     # gender
-    result.loc[result['gender_preds_fair'] == 0, 'gender'] = 'Male'
-    result.loc[result['gender_preds_fair'] == 1, 'gender'] = 'Female'
+    result.loc[result["gender_preds_fair"] == 0, "gender"] = "Male"
+    result.loc[result["gender_preds_fair"] == 1, "gender"] = "Female"
 
     # age
-    result.loc[result['age_preds_fair'] == 0, 'age'] = '0-2'
-    result.loc[result['age_preds_fair'] == 1, 'age'] = '3-9'
-    result.loc[result['age_preds_fair'] == 2, 'age'] = '10-19'
-    result.loc[result['age_preds_fair'] == 3, 'age'] = '20-29'
-    result.loc[result['age_preds_fair'] == 4, 'age'] = '30-39'
-    result.loc[result['age_preds_fair'] == 5, 'age'] = '40-49'
-    result.loc[result['age_preds_fair'] == 6, 'age'] = '50-59'
-    result.loc[result['age_preds_fair'] == 7, 'age'] = '60-69'
-    result.loc[result['age_preds_fair'] == 8, 'age'] = '70+'
+    result.loc[result["age_preds_fair"] == 0, "age"] = "0-2"
+    result.loc[result["age_preds_fair"] == 1, "age"] = "3-9"
+    result.loc[result["age_preds_fair"] == 2, "age"] = "10-19"
+    result.loc[result["age_preds_fair"] == 3, "age"] = "20-29"
+    result.loc[result["age_preds_fair"] == 4, "age"] = "30-39"
+    result.loc[result["age_preds_fair"] == 5, "age"] = "40-49"
+    result.loc[result["age_preds_fair"] == 6, "age"] = "50-59"
+    result.loc[result["age_preds_fair"] == 7, "age"] = "60-69"
+    result.loc[result["age_preds_fair"] == 8, "age"] = "70+"
 
-    result[['face_name_align',
-            'race', 'race4',
-            'gender', 'age',
-            'race_scores_fair', 'race_scores_fair_4',
-            'gender_scores_fair', 'age_scores_fair']].to_csv(save_prediction_at, index=False)
+    result[
+        [
+            "face_name_align",
+            "race",
+            "race4",
+            "gender",
+            "age",
+            "race_scores_fair",
+            "race_scores_fair_4",
+            "gender_scores_fair",
+            "age_scores_fair",
+        ]
+    ].to_csv(save_prediction_at, index=False)
 
     print("saved results at ", save_prediction_at)
 
@@ -199,20 +222,23 @@ def ensure_dir(directory):
         os.makedirs(directory)
 
 
-
 if __name__ == "__main__":
-    #Please create a csv with one column 'img_path', contains the full paths of all images to be analyzed.
-    #Also please change working directory to this file.
+    # Please create a csv with one column 'img_path', contains the full paths of all images to be analyzed.
+    # Also please change working directory to this file.
     parser = argparse.ArgumentParser()
-    parser.add_argument('--csv', dest='input_csv', action='store',
-                        help='csv file of image path where col name for image path is "img_path')
+    parser.add_argument(
+        "--csv",
+        dest="input_csv",
+        action="store",
+        help='csv file of image path where col name for image path is "img_path',
+    )
     dlib.DLIB_USE_CUDA = True
     print("using CUDA?: %s" % dlib.DLIB_USE_CUDA)
     args = parser.parse_args()
     SAVE_DETECTED_AT = "detected_faces"
     ensure_dir(SAVE_DETECTED_AT)
-    imgs = pd.read_csv(args.input_csv)['img_path']
+    imgs = pd.read_csv(args.input_csv)["img_path"]
     detect_face(imgs, SAVE_DETECTED_AT)
     print("detected faces are saved at ", SAVE_DETECTED_AT)
-    #Please change test_outputs.csv to actual name of output csv. 
-    predidct_age_gender_race("test_outputs.csv", SAVE_DETECTED_AT)
+    # Please change test_outputs.csv to actual name of output csv.
+    predidct_age_gender_race("test_outputs.csv", imgs)
