@@ -1,0 +1,6 @@
+outs:
+- md5: fa4160e8d1a9d31f3b025bb991b5696b.dir
+  size: 170566082
+  nfiles: 2
+  hash: md5
+  path: fair_face_models
